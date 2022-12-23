@@ -2,6 +2,8 @@ import { Chess } from "chess.js";
 import path from 'path';
 import fs, { stat } from "fs";
 import readline from "readline";
+import { createClient } from "@urql/core";
+import fetch from "isomorphic-unfetch";
 
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
@@ -20,7 +22,7 @@ export default async function handler(req, res) {
 
     for await (const line of rl) {
         if (line.startsWith('[')) {
-            compileGame(str);
+            const fens = compileGameFens(str);
             str = ""
         } else {
             str += " " + line;
@@ -36,7 +38,47 @@ export default async function handler(req, res) {
     res.status(200).json({ fen: game.fen() });
 }
 
-function compileGame(str) {
+const boardStatesFromFen = `
+  query getBoardStatesFromFen(
+    $fen: String!,
+  ) {
+    BoardStates (
+      where: {
+        fen: { _eq: $fen}
+      }
+    ) {
+      id
+      fen
+      w_wins
+      b_wins
+      w_wr
+      b_wr
+    }
+  }
+`
+
+async function fetchGameStates(fens) {
+    const client = createClient({
+        url: process.env.HASURA_GRAPHQL_ENDPOINT,
+        requestPolicy: 'network-only',
+        fetchOptions: {
+          headers: {
+            accept: 'application/json',
+            'content-type': 'application/json',
+            // 'x-hasura-admin-secret': config.hasura.adminSecret,
+          },
+        },
+        fetch,
+    })
+
+    const result = await client
+      .query(boardStatesFromFen, {
+        fens,
+      })
+      .toPromise()
+}
+
+function compileGameFens(str) {
     let arr = str.split(/\s+/).filter((word) => !word.match(/\d+[.]/) && word.length > 0);
     // let arr = str.split(/\s+/).filter((word) => word.length > 0);
     if (arr.length == 0) {
@@ -110,6 +152,10 @@ function compileGame(str) {
         
         fens.push(fen);
     }
+
+    return fens;
+
+
 
     // console.log(game.fen());
 
