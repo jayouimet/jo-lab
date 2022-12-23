@@ -1,0 +1,10 @@
+table:
+  name: Moves
+  schema: public
+object_relationships:
+  - name: board_state
+    using:
+      foreign_key_constraint_on: fen
+  - name: next_board_state
+    using:
+      foreign_key_constraint_on: next_fen

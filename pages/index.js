@@ -43,6 +43,9 @@ export default function Home() {
 
     const makeRandomMove = () => {
         const possibleMoves = game.moves();
+        /*if (game.isThreefoldRepetition()) {
+
+        }*/
         if (game.isGameOver() || game.isDraw() || possibleMoves.length === 0)
             return;
         const rand = Math.floor(Math.random() * possibleMoves.length);

@@ -1,0 +1,2 @@
+- "!include public_BoardStates.yaml"
+- "!include public_Moves.yaml"
