@@ -1,0 +1,4 @@
+-- Could not auto-generate a down migration.
+-- Please write an appropriate down migration for the SQL below:
+-- alter table "public"."Moves" add column "fen_next_fen_str" text
+--  not null;

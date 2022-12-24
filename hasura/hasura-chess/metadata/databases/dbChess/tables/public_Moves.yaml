@@ -8,3 +8,16 @@ object_relationships:
   - name: next_board_state
     using:
       foreign_key_constraint_on: next_fen
+select_permissions:
+  - role: anonymous
+    permission:
+      columns:
+        - id
+        - fen
+        - next_fen
+        - created_at
+        - updated_at
+        - times_played
+        - fen_next_fen_str
+      filter: {}
+      allow_aggregations: true

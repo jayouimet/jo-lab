@@ -16,3 +16,19 @@ array_relationships:
         table:
           name: Moves
           schema: public
+select_permissions:
+  - role: anonymous
+    permission:
+      columns:
+        - id
+        - fen
+        - w_wins
+        - b_wins
+        - w_wr
+        - b_wr
+        - created_at
+        - updated_at
+        - draws
+        - draws_rate
+      filter: {}
+      allow_aggregations: true
