@@ -14,7 +14,7 @@ const client = createClient({
         headers: {
             accept: 'application/json',
             'content-type': 'application/json',
-            // 'x-hasura-admin-secret': config.hasura.adminSecret,
+            'x-hasura-admin-secret': process.env.HASURA_ADMIN_SECRET,
         },
     },
     fetch,
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
     }
 
     const dir = path.join(process.cwd(), 'resources');
-    const stream = await fs.createReadStream(dir + '/pgn/db.pgn');
+    const stream = await fs.createReadStream(dir + '/pgn/test2.pgn');
 
     const rl = readline.createInterface({
         input: stream,
@@ -36,6 +36,9 @@ export default async function handler(req, res) {
     let str = "";
 
     let gamesImported = 0;
+
+    let statesBatch = new Map();
+    let movesBatch = new Map();
 
     for await (const line of rl) {
         if (line.startsWith('[')) {
@@ -117,7 +120,12 @@ export default async function handler(req, res) {
                 let movesToUpsert = new Map();
 
                 for (let i = 0; i < fens.length; i++) {
-                    let s = safeGetBoardState(fens[i], statesMap);
+                    let s;
+                    if (statesBatch.has(fens[i])) {
+                        s = statesBatch.get(fens[i]);
+                    } else {
+                        s = safeGetBoardState(fens[i], statesMap);
+                    }
                     s.w_wins += result.w_win;
                     s.b_wins += result.b_win;
                     s.draws += result.draw;
@@ -125,44 +133,80 @@ export default async function handler(req, res) {
                     s.w_wr = s.w_wins / totalGames;
                     s.b_wr = s.b_wins / totalGames;
                     s.draws_rate = s.draws / totalGames;
-                    statesToUpsert.set(s.fen, s);
+                    statesBatch.set(s.fen, s);
                     if (i == fens.length - 1) {
                         break;
                     }
-                    let m = safeGetMoves(fens[i], fens[i + 1], movesMap);
+                    let m;
+                    if (movesBatch.has(fens[i] + " " + fens[i + 1])) {
+                        m = movesBatch.get(fens[i] + " " + fens[i + 1]);
+                    } else {
+                        m = safeGetMoves(fens[i], fens[i + 1], movesMap);
+                    }
                     m.times_played += 1;
-                    movesToUpsert.set(m.fen_next_fen_str, m);
+                    movesBatch.set(m.fen_next_fen_str, m);
                 }
 
-                try {
-                    const statesUpserted = await upsertBoardStates([ ...statesToUpsert.values()]);
-                    if (statesUpserted)
-                        await upsertMoves(Array.from(movesToUpsert.values()));
-                } catch (err) {
-                    const resJson = {
-                        message: err.statusCode,
-                        extensions: {
-                            code: StatusCodes.BAD_REQUEST,
-                            name: err.statusCode,
-                        },
+                /*for (const [fen, state] of statesToUpsert.entries()) {
+                    let s
+                    if (statesBatch.has(fen)) {
+                        s = statesBatch.get(fen);
+                        s.w_wins += state.w_wins;
+                        s.b_wins += state.b_wins;
+                        s.draws += state.draws;
+                        const totalGames = s.w_wins + s.b_wins + s.draws;
+                        s.w_wr = s.w_wins / totalGames;
+                        s.b_wr = s.b_wins / totalGames;
+                        s.draws_rate = s.draws / totalGames;
+                    } else {
+                        s = state;
                     }
-                    let response = res.status(StatusCodes.BAD_REQUEST).json(resJson);
-                    console.error({
-                        message: err.error,
-                        error: err,
-                        requestBody: JSON.stringify(req.body),
-                        response: {
-                            statusCode: StatusCodes.BAD_REQUEST,
-                            statusMessage: err.statusCode,
-                            json: JSON.stringify(resJson),
-                        },
-                    })
-                    return response;
+                    statesBatch.set(fen, s);
                 }
+
+                for (const [fen_next_fen_str, move] of movesToUpsert.entries()) {
+                    let m
+                    if (movesBatch.has(fen_next_fen_str)) {
+                        m = movesBatch.get(fen_next_fen_str);
+                        m.times_played += move.times_played;
+                    } else {
+                        m = move;
+                    }
+                    movesBatch.set(fen_next_fen_str, m);
+                }*/
 
                 gamesImported++;
 
-                if (gamesImported % 100 == 0) {
+                if (gamesImported % 1000 == 0) {
+                    try {
+                        const statesUpserted = await upsertBoardStates([ ...statesBatch.values()]);
+                        if (statesUpserted)
+                            await upsertMoves(Array.from(movesBatch.values()));
+                    } catch (err) {
+                        const resJson = {
+                            message: err.statusCode,
+                            extensions: {
+                                code: StatusCodes.BAD_REQUEST,
+                                name: err.statusCode,
+                            },
+                        }
+                        let response = res.status(StatusCodes.BAD_REQUEST).json(resJson);
+                        console.error({
+                            message: err.error,
+                            error: err,
+                            requestBody: JSON.stringify(req.body),
+                            response: {
+                                statusCode: StatusCodes.BAD_REQUEST,
+                                statusMessage: err.statusCode,
+                                json: JSON.stringify(resJson),
+                            },
+                        })
+                        return response;
+                    }
+
+                    statesBatch = new Map();
+                    movesBatch = new Map();
+
                     console.log(`Games imported: ${gamesImported}`);
                 }
             }
@@ -250,7 +294,12 @@ export default async function handler(req, res) {
         let movesToUpsert = new Map();
 
         for (let i = 0; i < fens.length; i++) {
-            let s = safeGetBoardState(fens[i], statesMap);
+            let s;
+            if (statesBatch.has(fens[i])) {
+                s = statesBatch.get(fens[i]);
+            } else {
+                s = safeGetBoardState(fens[i], statesMap);
+            }
             s.w_wins += result.w_win;
             s.b_wins += result.b_win;
             s.draws += result.draw;
@@ -258,19 +307,54 @@ export default async function handler(req, res) {
             s.w_wr = s.w_wins / totalGames;
             s.b_wr = s.b_wins / totalGames;
             s.draws_rate = s.draws / totalGames;
-            statesToUpsert.set(s.fen, s);
+            statesBatch.set(s.fen, s);
             if (i == fens.length - 1) {
                 break;
             }
-            let m = safeGetMoves(fens[i], fens[i + 1], movesMap);
+            let m;
+            if (movesBatch.has(fens[i] + " " + fens[i + 1])) {
+                m = movesBatch.get(fens[i] + " " + fens[i + 1]);
+            } else {
+                m = safeGetMoves(fens[i], fens[i + 1], movesMap);
+            }
             m.times_played += 1;
-            movesToUpsert.set(m.fen_next_fen_str, m);
+            movesBatch.set(m.fen_next_fen_str, m);
         }
 
+        /*for (const [fen, state] of statesToUpsert.entries()) {
+            let s
+            if (statesBatch.has(fen)) {
+                s = statesBatch.get(fen);
+                s.w_wins += state.w_wins;
+                s.b_wins += state.b_wins;
+                s.draws += state.draws;
+                const totalGames = s.w_wins + s.b_wins + s.draws;
+                s.w_wr = s.w_wins / totalGames;
+                s.b_wr = s.b_wins / totalGames;
+                s.draws_rate = s.draws / totalGames;
+            } else {
+                s = state;
+            }
+            statesBatch.set(fen, s);
+        }
+
+        for (const [fen_next_fen_str, move] of movesToUpsert.entries()) {
+            let m
+            if (movesBatch.has(fen_next_fen_str)) {
+                m = movesBatch.get(fen_next_fen_str);
+                m.times_played += move.times_played;
+            } else {
+                m = move;
+            }
+            movesBatch.set(fen_next_fen_str, m);
+        }*/
+
+        gamesImported++;
+
         try {
-            const statesUpserted = await upsertBoardStates(Array.from(statesToUpsert.values()));
+            const statesUpserted = await upsertBoardStates([ ...statesBatch.values()]);
             if (statesUpserted)
-                await upsertMoves(Array.from(movesToUpsert.values()));
+                await upsertMoves(Array.from(movesBatch.values()));
         } catch (err) {
             const resJson = {
                 message: err.statusCode,
@@ -292,6 +376,12 @@ export default async function handler(req, res) {
             })
             return response;
         }
+
+        statesBatch = new Map();
+        movesBatch = new Map();
+
+        console.log(`Games imported: ${gamesImported}`);
+        console.log("Done!");
     }
 
     const body = req.body;
@@ -303,7 +393,6 @@ export default async function handler(req, res) {
 }
 
 async function upsertBoardStates(statesToUpsert) {
-    return;
     if (statesToUpsert.length == 0)
         return;
     let query = 'INSERT INTO "BoardStates" (fen, w_wins, b_wins, w_wr, b_wr, draws, draws_rate) VALUES ';
@@ -362,7 +451,6 @@ async function upsertBoardStates(statesToUpsert) {
 }
 
 async function upsertMoves(movesToUpsert) {
-    return;
     if (movesToUpsert.length == 0)
         return;
     let query = 'INSERT INTO "Moves" (fen, next_fen, times_played, fen_next_fen_str) VALUES ';
